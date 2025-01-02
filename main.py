@@ -1,31 +1,37 @@
-import asyncio
-import time
 from datetime import datetime
 
 import uvicorn
-from fastapi import FastAPI, Request, Body
-from fastapi.responses import RedirectResponse
-from routers import route
+from fastapi import FastAPI, Request, Body, Header
+
+from starlette.responses import JSONResponse, RedirectResponse
+
 
 app = FastAPI(description="Learning Middlewares",
               version="0.1")
 
 
 @app.middleware("http")
-async def middleware_root(request: Request, call_next):
+async def middleware_root(request: Request, call_next) -> JSONResponse:
+    if request.url.path in ["/", "docs", "/openapi.json"]:
+        return await call_next(request)
 
-    if request.url.path.startswith("/users"):
-        response = await call_next(request)
-        response.headers["Some"] = "Ist users"
-        return response
+    method = request.method
+    url = request.url.path
+    time = datetime.now()
+    log_message = f"[{time}]: {method} to {url}\n"
 
-    print(f"[{datetime.now()}] -- ({request.method}) path: {request.url.hostname}{request.url.path}")
+    print(log_message)
+    with open("log.txt", "a") as f:
+        f.write(log_message)
 
-    start_time = time.perf_counter()
-    response = await call_next(request)
-    process_time = time.perf_counter() - start_time
-    response.headers["X-Process-Time"] = str(process_time)
-    return response
+    print(request.headers)
+
+    if "XC-Header" not in request.headers:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Missing X-Custom-Header"}
+        )
+    return await call_next(request)
 
 
 @app.get("/", include_in_schema=False)
@@ -34,12 +40,14 @@ async def root():
 
 
 @app.get("/hello")
-async def hello_rout(user: str = "Anonimus"):
-    await asyncio.sleep(0.2)
+async def hello_route(user: str = "Anonimus", xc_header=Header(True)):
     return f"Hello, {user}!"
 
 
-app.include_router(route, prefix="/users", tags=["users"])
+@app.get("/send/data")
+async def hello_route(data: dict = Body({"user": "Name"})):
+    return f"{data}!"
+
 
 if __name__ == "__main__":
     uvicorn.run(f"{__name__}:app", reload=True)
